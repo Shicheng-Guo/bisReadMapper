@@ -5,6 +5,8 @@
 
 use strict;
 
+my $start = time;
+
 my $genome_path = $ARGV[0];
 die("Missing genome name!") if(!$ARGV[0]);
 my @tmp = split /\//, $genome_path;
@@ -69,7 +71,7 @@ if(open(IN, "$genome_path")){
 
 		if($convert){
 			open(FWD_OUT, ">>$bisFwd") || die("Error writing bis fwd file");
-			print FWD_OUT ">", $name, "\n";
+			print FWD_OUT ">", $name, "_Watson\n";
 		}
 
 		while(my $seq = <IN>){	
@@ -89,13 +91,15 @@ if(open(IN, "$genome_path")){
 					$val = $variant{$name}->{$pos};
 					$base[$i] = $val;
 				}
-				my $rcval = $val;
-				$rcval = $rcTable{$val} if($rcTable{$val});
-				$rev_seq = $rcval . $rev_seq;
-				if($fwd_seq eq "NA"){
-					$fwd_seq = $val;
-				}else{
-					$fwd_seq = $fwd_seq . $val;
+				if($convert){
+					my $rcval = $val;
+					$rcval = $rcTable{$val} if($rcTable{$val});
+					$rev_seq = $rcval . $rev_seq;
+					if($fwd_seq eq "NA"){
+						$fwd_seq = $val;
+					}else{
+						$fwd_seq = $fwd_seq . $val;
+					}
 				}
 				if($pos > 3){
 					my $c_pos = $pos - 3;
@@ -103,12 +107,16 @@ if(open(IN, "$genome_path")){
 					if($all){
 						if($first eq 'C' and $second ne 'G'){
 							print CH_OUT $name, ":W\t", $c_pos, "\tCHG\n", $name, ":C\t", $c_pos+2, "\tCHG\n" 
-								if($third eq 'G');
+								if($third eq 'G' and $second ne 'C');
+							print CH_OUT $name, ":W\t", $c_pos, "\tCHG\n"
+								if($third eq 'G' and $second eq 'C');
 							print CH_OUT $name, ":W\t", $c_pos, "\tCHH\n" 
 								if($third ne 'G');
 						}
 						print CH_OUT $name, ":C\t", $c_pos+2, "\tCHH\n" 
 							if($first ne 'C' and $second ne 'C' and $third eq 'G');
+						print CH_OUT $name, ":C\t", $c_pos+2, "\tCHG\n"
+							if($first eq 'C' and $second eq 'G' and $third eq 'G');
 					}
 				}
 				($first, $second, $third) = ($second, $third, $val);
@@ -134,7 +142,7 @@ if(open(IN, "$genome_path")){
 				push(@rcArray, $rev_seq);
 			}
 			open(REV_OUT, ">>$bisRev") || die("Error writing bis rev file");
-			print REV_OUT ">", $name, "\n";
+			print REV_OUT ">", $name, "_Crick\n";
 			print REV_OUT @rcArray;
 			close(REV_OUT);
 		}
@@ -142,3 +150,4 @@ if(open(IN, "$genome_path")){
 	}
 	close(IN);
 }
+my $time_taken = time - $start;

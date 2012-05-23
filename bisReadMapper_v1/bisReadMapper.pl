@@ -29,7 +29,7 @@ my $minDepth = 10;
 
 my ($template_fwd, $template_fwd_fa, $template_rev, $template_rev_fa, $template_idx);
 
-my ($soap2_exe, $samtools, $soap2sam, $bcftools);
+my ($soap2_exe, $samtools, $soap2sam);
 
 my %rcTable;
 $rcTable{'A'}='T';
@@ -45,6 +45,7 @@ $rcTable{'S'}='S';
 $rcTable{'W'}='W';
 
 my %chrSizes;
+my %chrFiles;
 
 sub main(){
 	open(PARAMS, "$ARGV[0]") || die("No params file given or params file is unreadable\n");
@@ -66,6 +67,8 @@ sub main(){
 		if($a =~ m/trim3=/){ $a =~ s/trim3=//g; $threep = int($a); print "Trim 3' = $threep\n";}
 		if($a =~ m/trim5=/){ $a =~ s/trim5=//g; $fivep = int($a); print "Trim 5' = $fivep\n";}
 		if($a =~ m/bam=/){ $a =~ s/bam=//g; $bam = $a; print "Input is BAM? = $bam\n";}
+		if($a =~ m/minDepth=/){ $a =~ s/minDepth=//g; $minDepth = $a; print "Minimum coverage = $minDepth";}
+		if($a =~ m/rmdup=/){ $a =~ s/rmdup=//g; $rmdup = $a; print "Remove clonal reads ? = $rmdup";}
 	}
 	close(PARAMS);
 	if(!$align_mode){
@@ -121,7 +124,13 @@ sub main(){
 	while(my $line = <GENOME_INDEX>){
 		chop($line);
 		my @f = split "\t", $line;
-		$chrSizes{$f[0]} = $f[1];
+		my $cur_chr = $f[0];
+		$chrSizes{$cur_chr} = $f[1];
+		# find the chr position files:
+		for $val (@refList){
+			next if($val != m/positions.txt/);
+			push(@{$chrFiles{$f[0]}},$val) if($val =~ m/$cur_chr.positions.txt/);
+		}
 	}
 	close(GENOME_INDEX);
 
@@ -136,6 +145,8 @@ sub main(){
 	}else{
 		extractCG_SNP($reads[0], $reads[1]);
 	}
+
+	#filter SNPs given dbSNP file:
 	if($snp_file){
 		#filter SNPs
 		print "Filtering SNPs\n";
@@ -167,17 +178,17 @@ sub extractCG_SNP(){
 		system($cmd) == 0 or die "system problem (exit $?): $!\n";
 		$cmd = "$samtools index $sorted_rev_bam";
 		system($cmd) == 0 or die "system problem (exit $?): $!\n";
-		my $vcf_fwd = $sorted_fwd_bam . ".vcf";
-		my $vcf_rev = $sorted_rev_bam . ".vcf";
-		$cmd = "$samtools pileup -cf $template_fwd_fa $sorted_fwd_bam > $vcf_fwd";
+		my $pileup_fwd = $sorted_fwd_bam . ".pileup";
+		my $pileup_rev = $sorted_rev_bam . ".pileup";
+		$cmd = "$samtools pileup -cf $template_fwd_fa $sorted_fwd_bam > $pileup_fwd";
 		print $cmd, "\n";
 		system($cmd) == 0 or die "system problem (exit $?): $!\n";
-		$cmd = "$samtools pileup -cf $template_rev_fa $sorted_rev_bam > $vcf_rev";
+		$cmd = "$samtools pileup -cf $template_rev_fa $sorted_rev_bam > $pileup_rev";
 		print $cmd, "\n";
 		system($cmd) == 0 or die "system problem (exit $?): $!\n";
 
 		my $snpcall_file = $name . ".snp";
-		open( my $snp_h, ">$snpcall_file") || die("Error writing to snp file, $snp_file \n");	
+		open( my $snp_h, ">$snpcall_file") || die("Error writing to snp file, $snp_file \n");
 		foreach my $val (@refList){
 			if($val ~ /positions.txt/){
 				my $methylFreq_file = $name . "." . $val . ".methylFreq";	
