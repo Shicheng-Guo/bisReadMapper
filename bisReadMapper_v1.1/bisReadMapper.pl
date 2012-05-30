@@ -149,6 +149,8 @@ sub main(){
 			if($val =~ m/$cur_chr.cpositions.txt/){
 				push(@{$chrFiles{$cur_chr}},$val);
 				print $cur_chr, "\t", $val, "\n";
+				open(CPG_OUT, ">$val") || die("Error writing to $val.\n");
+				close(CPG_OUT);
 			}
 		}
 		print GENOME_FAI join("\t", @f), "\n";
@@ -173,6 +175,7 @@ sub main(){
 		print "Finished mapping reads.\n";
 		foreach my $sam_file (keys %samList){
 			my $processed_bam = sort_rmdup($sam_file);
+			unlink($sam_file);
 			extract($processed_bam, $samList{$sam_file});
 		}
 	}else{
@@ -210,9 +213,7 @@ sub sort_rmdup(){
 	my $cmd = "$samtools view -uSt $template_fai $sam_file | $samtools sort - $sorted_bam";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
-
 	$sorted_bam = $sorted_bam . ".bam";
-
         if($rmdup){
                 my $sorted_rmdup_bam = "rmdup." . $sorted_bam;
                 $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam";
@@ -220,9 +221,7 @@ sub sort_rmdup(){
                 system($cmd) == 0 or die "system problem (exit $?): $!\n";
 		unlink($sorted_bam);
                 return ($sorted_rmdup_bam);
-        }else{
-                return ($sorted_bam);
-        }
+        }else{ return ($sorted_bam); }
 }
 
 sub soap2sam(){
@@ -307,6 +306,7 @@ sub soap2sam(){
 		my $cmd = "$soap2sam $val.tmp >> $val";
 		print $cmd, "\n";
 		system($cmd) == 0 or die "system problem (exit $?): $!\n";
+		unlink($val . ".tmp");
 	}
 	unlink($soap_combined_sorted_map_file);
 }
@@ -350,7 +350,7 @@ sub extract(){
 	#process the last positions
 	if($cnt != 0){
 		print "Processing last $sorted_bam data\n";
-		processCur(\@cur_pos, $cnt, $snp_h, $str);
+		processCur(\@cur_pos, $cnt-1, $snp_h, $str);
 	}	
         close($snp_h);
 
@@ -370,10 +370,10 @@ sub processCur(){
 	for(my $i = 0; $i<=$cnt; $i++){
 		my $line = $array[$i];
 		my @fields = split(/\t/, $line);
-		#print SNP
 		my $chr = $fields[0];
 		my $fwd_pos = $fields[1];
 		$fwd_pos = $chrSizes{$fields[0]}-$fields[1]+1 if($str eq 'C');
+		
 		if($fields[4] ne '.' && $fields[5] > 20){  # if the SNP quality is higher than 20
 			my %variantStat = pileupFields2variantStat(\@fields, 0);
 			print $snp_h $fields[0], "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t", 
