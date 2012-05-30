@@ -20,6 +20,7 @@ my $allC = 0;
 my $threep = 0;
 my $fivep= 0;
 my $bam=0;
+my $multi_reads=0;
 
 my $script_dir = `readlink -f $0`;
 chomp($script_dir);
@@ -50,6 +51,7 @@ $rcTable{'W'}='W';
 
 my %chrSizes;
 my %chrFiles;
+my %bamList;
 
 sub main(){
 	open(PARAMS, "$ARGV[0]") || die("No params file given or params file is unreadable\n");
@@ -59,6 +61,7 @@ sub main(){
 		my ($arg, $val) = split("=", $line);
 		switch($arg) {
 			case "reads" { @reads = split(",", $val); print "Reads: ", join(",", @reads), "\n"; }
+			case "multireads" { $multi_reads = isyes($val); print "Multi-reads ?: ", $multi_reads, "\n"; }
 			case "length" { $read_len = int($val); print "Read length to use: $read_len\n"; }
 			case "refDir" { $ref_dir = $val; print "Reference dir: $ref_dir\n"; }
 			case "soapDir" { $soap_dir = $val; print "SOAP dir: $soap_dir\n"; }
@@ -88,7 +91,7 @@ sub main(){
 	}
 	if(!$reads[0]){
 		die("No reads provided.\n");
-	}	
+	}
 	if($align_mode eq 'P' && scalar(@reads) < 2){
 		die("Can't align by paired-end, only one reads file detected.\n");
 	}
@@ -139,6 +142,8 @@ sub main(){
 		$cur_chr =~ s/_Watson//;
 		$cur_chr =~ s/_Crick//;
 		$f[0] = $cur_chr;
+		$bamList{$cur_chr.".fwd.bam"} = "W";
+		$bamList{$cur_chr.".rev.bam"} = "C";
 		$chrSizes{$cur_chr} = $f[1];
 		# find the chr position files:
 		for my $val (@refList){
@@ -156,15 +161,26 @@ sub main(){
 	if($bam == 0){
 		my ($soap_fwd_map_file, $soap_rev_map_file) = (0,0);
 		if($align_mode eq "P"){
-			($soap_fwd_map_file, $soap_rev_map_file) = fastq2SOAPpe($reads[0], $reads[1]);
+			for(my $i = 0; $i < scalar(@reads); $i+2){
+				die("Uneven pairs of reads files given.\n") if(!$reads[$i+1]);
+				($soap_fwd_map_file, $soap_rev_map_file) = fastq2SOAPpe($reads[$i], $reads[$i+1]);
+				soap2bam($soap_fwd_map_file, $soap_rev_map_file);
+			}
 		}else{
-			($soap_fwd_map_file, $soap_rev_map_file) = fastq2SOAPse($reads[0]);
+			for(my $i = 0; $i < scalar(@reads); $i++){
+				($soap_fwd_map_file, $soap_rev_map_file) = fastq2SOAPse($reads[$i]);
+				soap2bam($soap_fwd_map_file, $soap_rev_map_file);
+			}
 		}
-		my ($bam_fwd, $bam_rev) = soap2bam($soap_fwd_map_file, $soap_rev_map_file);
-		extract($bam_fwd, $bam_rev);
+		foreach my $bam_file (keys %bamList){
+			my $processed_bam = sort_rmdup($bam_file);
+			extract($processed_bam, $bamList{$bam_file});
+		}
 	}else{
-		extract($reads[0], $reads[1]);
+		extract($reads[0], "W");
+		extract($reads[1], "C");
 	}
+	undef %bam_list;
 
 	#filter SNPs given dbSNP file:
 	if($snp_file){
@@ -187,6 +203,27 @@ sub main(){
 	print $cmd, "\n";
 	system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	
+}
+
+sub sort_rmdup(){
+        my $bam_file = shift;
+	my $sorted_bam = $bam_file . ".sorted";
+	my $cmd = "$samtools sort $bam_file $sorted_fwd_bam";
+        print $cmd, "\n";
+        system($cmd) == 0 or die "system problem (exit $?): $!\n";
+
+	$sorted_bam = $sorted_bam . ".bam";
+
+        if($rmdup){
+                my $sorted_rmdup_bam = "rmdup." . $sorted_bam;
+                $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam";
+                print $cmd, "\n";
+                system($cmd) == 0 or die "system problem (exit $?): $!\n";
+		unlink($sorted_bam);
+                return ($sorted_rmdup_bam);
+        }else{
+                return ($sorted_bam);
+        }
 }
 
 sub soap2bam(){
@@ -212,8 +249,13 @@ sub soap2bam(){
 	my $soap_clean_fwd_map_file = $fqName.".clean.soap.fwd.out";
 	my $soap_clean_rev_map_file = $fqName.".clean.soap.rev.out";
 	open(SOAP_OUT, "$soap_combined_sorted_map_file") || die("Error in opening $soap_combined_sorted_map_file.");
-	open(CLEAN_SOAP_FWD, ">$soap_clean_fwd_map_file") || die("Error in opening $soap_clean_fwd_map_file.");
-	open(CLEAN_SOAP_REV, ">$soap_clean_rev_map_file") || die("Error in opening $soap_clean_rev_map_file.");
+
+	my %file_handles;
+
+	foreach my $val (keys %bamList){
+		open( $file_handles{$val} , ">$val.tmp.out" ) || die ("Error writing to file $val.tmp.out\n");
+	}	
+
 	my $last_line = <SOAP_OUT>;
 	my @last_fields = split(/\t/, $last_line);
 	while(my $line =  <SOAP_OUT>){
@@ -240,10 +282,10 @@ sub soap2bam(){
 			$last_fields[0] = $id;
 			$last_fields[1] = $orig_seq;
 			if($last_fields[7] =~ s/_Crick//){
-				print CLEAN_SOAP_REV join("\t", @last_fields), "\n";
+				print $file_handles{$fields[7].".rev.bam"} join("\t", @last_fields), "\n";
 			}else{
 				$last_fields[7] =~ s/_Watson//;
-				print CLEAN_SOAP_FWD join("\t", @last_fields), "\n";
+				print $file_handles{$fields[7].".fwd.bam"} join("\t", @last_fields), "\n";
 			}
 			$last_line = $line;
 			@last_fields = @fields;
@@ -255,66 +297,46 @@ sub soap2bam(){
 		$last_fields[0] = $id;
 		$last_fields[1] = $orig_seq;
 		if($last_fields[7] =~ s/_Crick//){
-			print CLEAN_SOAP_REV join("\t", @last_fields), "\n";
+			print $file_handles{$fields[7].".rev.bam"} join("\t", @last_fields), "\n";
 		}else{
 			$last_fields[7] =~ s/_Watson//;
-			print CLEAN_SOAP_FWD join("\t", @last_fields), "\n";
+			print $file_handles{$fields[7].".fwd.bam"} join("\t", @last_fields), "\n";
 		}
 	}
 	close(SOAP_OUT);
-	close(CLEAN_SOAP_FWD);
-	close(CLEAN_SOAP_REV);
+	foreach my $val (keys %bamList){
+		close( $files_handles{$val} );
+	}
 	unlink($soap_combined_sorted_map_file);
-	
-	my $sorted_fwd_bam = $fwd_map . ".sorted";
-	my $sorted_rev_bam = $rev_map . ".sorted";
-	
+		
 	print $template_fai, "\n";
 
-	my $cmd;
-	if($align_mode eq 'P'){
-		$cmd = "$soap2sam p $soap_clean_fwd_map_file | $samtools view -uSt $template_fai - | $samtools sort - $sorted_fwd_bam";
-		print $cmd, "\n";
-		system($cmd) == 0 or die "system problem (exit $?): $!\n";
-
-		$cmd = "$soap2sam p $soap_clean_rev_map_file | $samtools view -uSt $template_fai - | $samtools sort - $sorted_rev_bam";
-		print $cmd, "\n";
-		system($cmd) == 0 or die "system problem (exit $?): $!\n";
-	}else{
-		$cmd = "$soap2sam $soap_clean_fwd_map_file | $samtools view -uSt $template_fai - | $samtools sort - $sorted_fwd_bam";
-		print $cmd, "\n";
-		system($cmd) == 0 or die "system problem (exit $?): $!\n";
-
-		$cmd = "$soap2sam $soap_clean_rev_map_file | $samtools view -uSt $template_fai - | $samtools sort - $sorted_rev_bam";
-		print $cmd, "\n";
-		system($cmd) == 0 or die "system problem (exit $?): $!\n";
-	}
-	$sorted_fwd_bam = $sorted_fwd_bam . ".bam";
-	$sorted_rev_bam = $sorted_rev_bam . ".bam";
-	
-	return ($sorted_fwd_bam, $sorted_rev_bam);
+	my $cmd = "$soap2sam $soap_clean_fwd_map_file | $samtools view -uSt $template_fai - | $samtools sort - $sorted_fwd_bam";
+	print $cmd, "\n";
+	system($cmd) == 0 or die "system problem (exit $?): $!\n";
 }
 
 sub extract(){
-        my ($sorted_fwd_bam, $sorted_rev_bam) = @_;
+        my ($sorted_bam, $str) = @_;
 
-        my $cmd = "$samtools index $sorted_fwd_bam";
+        my $cmd = "$samtools index $sorted_bam";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
-        $cmd = "$samtools index $sorted_rev_bam";
-        system($cmd) == 0 or die "system problem (exit $?): $!\n";
-        my $pileup_fwd = $sorted_fwd_bam . ".pileup";
-        my $pileup_rev = $sorted_rev_bam . ".pileup";
-        $cmd = "$samtools pileup -cf $template_fwd_fa $sorted_fwd_bam > $pileup_fwd";
-        print $cmd, "\n";
-        system($cmd) == 0 or die "system problem (exit $?): $!\n";
-        $cmd = "$samtools pileup -cf $template_rev_fa $sorted_rev_bam > $pileup_rev";
-        print $cmd, "\n";
-        system($cmd) == 0 or die "system problem (exit $?): $!\n";
+        my $pileup = $sorted_bam . ".pileup";
+	
+	if($str eq "W"){
+	        $cmd = "$samtools pileup -cf $template_fwd_fa $sorted_bam > $pileup";
+        	print $cmd, "\n";
+	        system($cmd) == 0 or die "system problem (exit $?): $!\n";
+	}else{
+	        $cmd = "$samtools pileup -cf $template_rev_fa $sorted_bam > $pileup";
+        	print $cmd, "\n";
+	        system($cmd) == 0 or die "system problem (exit $?): $!\n";
+	}
 
         my $snpcall_file = $name . ".snp";
         open( my $snp_h, ">$snpcall_file") || die("Error writing to snp file, $snpcall_file \n");
 
-	open(FWD_FILE, "$pileup_fwd") || die("Error opening $pileup_fwd\n");
+	open(FWD_FILE, "$pileup") || die("Error opening $pileup\n");
 	my @cur_pos;
 	my $cnt = 0;
 	#my $num_lines = 100000;
@@ -323,8 +345,8 @@ sub extract(){
 		chomp($line);
 		$cur_pos[$cnt] = $line;
 		if($cnt == $num_lines){
-			print "Processing Watson data\n";
-			processCur(\@cur_pos, $cnt, $snp_h, "W");
+			print "Processing $sorted_bam data\n";
+			processCur(\@cur_pos, $cnt, $snp_h, $str);
 			$cnt = 0;
 		}else{
 			$cnt++;
@@ -333,38 +355,14 @@ sub extract(){
 	close(FWD_FILE);
 	#process the last positions
 	if($cnt%$num_lines ne 0){
-		print "Processing last Watson data\n";
-		processCur(\@cur_pos, $cnt, $snp_h, "W");
-	}
-	open(REV_FILE, "$pileup_rev") || die("Error opening $pileup_rev\n");
-	my @cur_pos;
-	my $cnt = 0;
-	while(my $line = <REV_FILE>){
-	    next if($line =~ m/##/);
-		chomp($line);
-		$cur_pos[$cnt] = $line;
-		if($cnt == $num_lines){
-			print "Processing Crick data\n";
-			processCur(\@cur_pos, $cnt, $snp_h, "C");
-			$cnt = 0;
-		}else{
-			$cnt++;
-		}
-	}		
-	close(REV_FILE);
-	#process the last positions
-	if($cnt%$num_lines ne 0){
-		print "Processing last Crick data\n";
-		processCur(\@cur_pos, $cnt, $snp_h, "C");
-	}
-	
+		print "Processing last $sorted_bam data\n";
+		processCur(\@cur_pos, $cnt, $snp_h, $str);
+	}	
         close($snp_h);
 
-        unlink($sorted_fwd_bam . ".bai");
-        unlink($sorted_rev_bam . ".bai");
+        unlink($sorted_bam . ".bai");
 
-        #unlink($sorted_fwd_bam . ".pileup");
-        #unlink($sorted_rev_bam . ".pileup");
+        #unlink($pileup);
         return;
 }
 
@@ -420,7 +418,7 @@ sub processCur(){
 			#now look up the position
 			#if the position is a CG and the current positions are from Crick strand, only look up ($pos+1).
 			if($context eq 'CG' && $str eq "C"){
-				$chr_str =~ s/:C/:W/;
+				$chr_str =~ s/:W/:C/;
 				$pos = $pos++;
 				if($posTable{$chr_str.":".$pos}){
 					$fields[0] =~ s/:W//;

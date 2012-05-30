@@ -10,11 +10,12 @@ $minDepth = 50 if (!$minDepth);
 while(my $line = <STDIN>){
         my @fields = split(/\t/, $line);
         next if($fields[3] <$minDepth);
+	next if($fields[4] ne 'CG');
         my $chr = $fields[0];
         my $pos = $fields[1];
+	$pos-- if($fields[2] eq 'C');
         my %alleleFreq;
         my $Fct;
-	next if($fields[4] ne 'CG');
         for(my $i=5; $i<scalar(@fields); $i+=2){
                 $alleleFreq{$fields[$i]}=$fields[$i+1];                 
                 $Fct += $fields[$i+1] if($fields[$i]=~ /[CT]/);
