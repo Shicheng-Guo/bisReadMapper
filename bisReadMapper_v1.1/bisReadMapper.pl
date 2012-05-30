@@ -20,7 +20,6 @@ my $allC = 0;
 my $threep = 0;
 my $fivep= 0;
 my $bam=0;
-my $multi_reads=0;
 
 my $script_dir = `readlink -f $0`;
 chomp($script_dir);
@@ -61,7 +60,6 @@ sub main(){
 		my ($arg, $val) = split("=", $line);
 		switch($arg) {
 			case "reads" { @reads = split(",", $val); print "Reads: ", join(",", @reads), "\n"; }
-			case "multireads" { $multi_reads = isyes($val); print "Multi-reads ?: ", $multi_reads, "\n"; }
 			case "length" { $read_len = int($val); print "Read length to use: $read_len\n"; }
 			case "refDir" { $ref_dir = $val; print "Reference dir: $ref_dir\n"; }
 			case "soapDir" { $soap_dir = $val; print "SOAP dir: $soap_dir\n"; }
@@ -142,8 +140,8 @@ sub main(){
 		$cur_chr =~ s/_Watson//;
 		$cur_chr =~ s/_Crick//;
 		$f[0] = $cur_chr;
-		$bamList{$cur_chr.".fwd.sam"} = 'W';
-		$bamList{$cur_chr.".rev.sam"} = 'C';
+		$samList{$cur_chr.".fwd.sam"} = 'W';
+		$samList{$cur_chr.".rev.sam"} = 'C';
 		$chrSizes{$cur_chr} = $f[1];
 		# find the chr position files:
 		for my $val (@refList){
@@ -172,6 +170,7 @@ sub main(){
 				soap2sam($soap_fwd_map_file, $soap_rev_map_file);
 			}
 		}
+		print "Finished mapping reads.\n";
 		foreach my $sam_file (keys %samList){
 			my $processed_bam = sort_rmdup($sam_file);
 			extract($processed_bam, $samList{$sam_file});
@@ -208,7 +207,7 @@ sub sort_rmdup(){
         my $sam_file = shift;
 	my $sorted_bam = $sam_file . ".sorted";
 	$sorted_bam =~ s/sam/bam/;
-	my $cmd = "$samtools view -uSt $template_fai $sam_file | $samtools sort - $sorted_bam"
+	my $cmd = "$samtools view -uSt $template_fai $sam_file | $samtools sort - $sorted_bam";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
 
@@ -279,10 +278,10 @@ sub soap2sam(){
 			$last_fields[0] = $id;
 			$last_fields[1] = $orig_seq;
 			if($last_fields[7] =~ s/_Crick//){
-				print $file_handles{$fields[7].".rev.sam"} join("\t", @last_fields), "\n";
+				print { $file_handles{ $last_fields[7] .".rev.sam"} } join("\t", @last_fields), "\n";
 			}else{
 				$last_fields[7] =~ s/_Watson//;
-				print $file_handles{$fields[7].".fwd.sam"} join("\t", @last_fields), "\n";
+				print { $file_handles{ $last_fields[7] .".fwd.sam"} } join("\t", @last_fields), "\n";
 			}
 			$last_line = $line;
 			@last_fields = @fields;
@@ -294,17 +293,17 @@ sub soap2sam(){
 		$last_fields[0] = $id;
 		$last_fields[1] = $orig_seq;
 		if($last_fields[7] =~ s/_Crick//){
-			print $file_handles{$fields[7].".rev.sam"} join("\t", @last_fields), "\n";
+			print { $file_handles{$last_fields[7] .".rev.sam"} } join("\t", @last_fields), "\n";
 		}else{
 			$last_fields[7] =~ s/_Watson//;
-			print $file_handles{$fields[7].".fwd.sam"} join("\t", @last_fields), "\n";
+			print { $file_handles{$last_fields[7] .".fwd.sam"} } join("\t", @last_fields), "\n";
 		}
 	}
 	close(SOAP_OUT);
 	
 	print $template_fai, "\n";
 	foreach my $val (keys %samList){
-		close( $files_handles{$val} );
+		close( $file_handles{$val} );
 		my $cmd = "$soap2sam $val.tmp >> $val";
 		print $cmd, "\n";
 		system($cmd) == 0 or die "system problem (exit $?): $!\n";
@@ -349,7 +348,7 @@ sub extract(){
 	}
 	close(FWD_FILE);
 	#process the last positions
-	if($cnt%$num_lines ne 0){
+	if($cnt != 0){
 		print "Processing last $sorted_bam data\n";
 		processCur(\@cur_pos, $cnt, $snp_h, $str);
 	}	
