@@ -142,6 +142,8 @@ sub main(){
 		$f[0] = $cur_chr;
 		$samList{$cur_chr.".fwd.sam"} = 'W';
 		$samList{$cur_chr.".rev.sam"} = 'C';
+		open(TMP_OUT, ">$cur_chr.fwd.sam") || die("Error writing to $cur_chr.fwd.sam");
+		open(TMP_OUT, ">$cur_chr.rev.sam") || die("Error writing to $cur_chr.rev.sam");
 		$chrSizes{$cur_chr} = $f[1];
 		# find the chr position files:
 		for my $val (@refList){

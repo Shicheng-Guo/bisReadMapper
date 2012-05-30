@@ -41,6 +41,7 @@ sub main(){
 		my $strand = $fields[2] eq 'W' ? '+' : '-';
 		my %alleleCounts;
 		my $CT_counts;
+		$fields[1]-- if($strand eq '-');
 		for(my $i=5; $i<scalar(@fields); $i+=2){
 			$alleleCounts{$fields[$i]}=$fields[$i+1];			
 			$CT_counts += $fields[$i+1] if($fields[$i]=~ /[CT]/);
@@ -88,8 +89,7 @@ sub report_methylFreqBED(){
 				$chr_pos-1, "\t", 
 				$chr_pos, "\t",
 				"$methylLevel\t",
-				int($methylTable{$index}->{'CT'}), "\t", 
-				$methylTable{$index}->{"Strand"}, "\t",
+				int($methylTable{$index}->{'CT'}), "\tW\t",
 				$chr_pos-1, "\t",
 				$chr_pos, "\t",
 				$palette[int($methylLevel*8-0.0001)],"\n" if($methylTable{$index}->{"Type"} eq 'CG');
