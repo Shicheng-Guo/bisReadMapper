@@ -313,8 +313,6 @@ sub extract(){
 
         my $snpcall_file = $name . ".snp";
         open( my $snp_h, ">$snpcall_file") || die("Error writing to snp file, $snpcall_file \n");
-        my $methylFreq_file = $name . ".methylFreq";
-        open( my $cpg_h, ">$methylFreq_file") || die("Error writing to methylation frequency file, $methylFreq_file \n");
 
 	open(FWD_FILE, "$pileup_fwd") || die("Error opening $pileup_fwd\n");
 	my @cur_pos;
@@ -326,7 +324,7 @@ sub extract(){
 		$cur_pos[$cnt] = $line;
 		if($cnt == $num_lines){
 			print "Processing Watson data\n";
-			processCur(\@cur_pos, $cnt, $snp_h, $cpg_h, "W");
+			processCur(\@cur_pos, $cnt, $snp_h, "W");
 			$cnt = 0;
 		}else{
 			$cnt++;
@@ -336,7 +334,7 @@ sub extract(){
 	#process the last positions
 	if($cnt%$num_lines ne 0){
 		print "Processing last Watson data\n";
-		processCur(\@cur_pos, $cnt, $snp_h, $cpg_h, "W");
+		processCur(\@cur_pos, $cnt, $snp_h, "W");
 	}
 	open(REV_FILE, "$pileup_rev") || die("Error opening $pileup_rev\n");
 	my @cur_pos;
@@ -347,7 +345,7 @@ sub extract(){
 		$cur_pos[$cnt] = $line;
 		if($cnt == $num_lines){
 			print "Processing Crick data\n";
-			processCur(\@cur_pos, $cnt, $snp_h, $cpg_h, "C");
+			processCur(\@cur_pos, $cnt, $snp_h, "C");
 			$cnt = 0;
 		}else{
 			$cnt++;
@@ -357,11 +355,10 @@ sub extract(){
 	#process the last positions
 	if($cnt%$num_lines ne 0){
 		print "Processing last Crick data\n";
-		processCur(\@cur_pos, $cnt, $snp_h, $cpg_h, "C");
+		processCur(\@cur_pos, $cnt, $snp_h, "C");
 	}
 	
         close($snp_h);
-        close($cpg_h);
 
         unlink($sorted_fwd_bam . ".bai");
         unlink($sorted_rev_bam . ".bai");
@@ -372,30 +369,27 @@ sub extract(){
 }
 
 sub processCur(){
-	my ($arrayAddy, $cnt, $snp_h, $cpg_h, $str) = @_;
+	my ($arrayAddy, $cnt, $snp_h, $str) = @_;
 	my @array = @{$arrayAddy};
 	my %posTable;
 	my %chr_list;
 	my $max_pos = 0;
 	print "- $cnt lines\n";
 	for(my $i = 0; $i<=$cnt; $i++){
-		my $line = $array[$cnt];
+		my $line = $array[$i];
 		my @fields = split(/\t/, $line);
 		#print SNP
 		my $chr = $fields[0];
 		my $fwd_pos = $fields[1];
-		#saves to posTable
-		if($str eq "C"){
-			#convert to fwd positions
-			$fwd_pos = $chrSizes{$fields[0]}-$fields[1]+1;
-		}
+		$fwd_pos = $chrSizes{$fields[0]}-$fields[1]+1 if($str eq "C");
 		if($fields[4] ne '.' && $fields[5] > 20){  # if the SNP quality is higher than 20
 			my %variantStat = pileupFields2variantStat(\@fields, 0);
-			print $snp_h $fields[0], "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t", $variantStat{"call"}, "\t", $variantStat{"snpQual"}, "\t", $variantStat{"depth"};
+			print $snp_h $fields[0], "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t", 
+				$variantStat{"call"}, "\t", $variantStat{"snpQual"}, "\t", $variantStat{"depth"};
 			foreach my $base (keys(%{$variantStat{"counts"}})){
-				print SNP_OUT "\t$base\t", $variantStat{"counts"}->{$base};
+				print $snp_h "\t$base\t", $variantStat{"counts"}->{$base};
 			}
-			print SNP_OUT "\n";			
+			print $snp_h "\n";			
 		}
 		
 		#saves chromosomes to chr_list
@@ -404,12 +398,15 @@ sub processCur(){
 			$chr_list{$file}=1;
 		}
 		#saves to posTable
-		$posTable{$chr.":".$str}->{$fwd_pos} = $line;
+		$posTable{$chr.":".$str.":".$fwd_pos} = $line;
 		#set max position
 		$max_pos = $fwd_pos if($fwd_pos > $max_pos);
 	}
+
 	print "~Searching in ", join(",", keys %chr_list), "\n";
 	foreach my $chr_file (keys %chr_list){
+		my $methylFreq_file = $name . "." . $chr_file . ".methylFreq";
+		open( my $cpg_h, ">>$methylFreq_file" ) || die("Error writing to $methylFreq_file");
 		open(C_POS, "$ref_dir/$chr_file") || die("Error opening file $chr_file\n");
 		while(my $line = <C_POS>){
 			chomp($line);
@@ -425,10 +422,10 @@ sub processCur(){
 			if($context eq 'CG' && $str eq "C"){
 				$chr_str =~ s/:C/:W/;
 				$pos = $pos++;
-				if($posTable{$chr_str}->{$pos}){
+				if($posTable{$chr_str.":".$pos}){
 					$fields[0] =~ s/:W//;
 					$fields[0] =~ s/:C//;
-					my @pileup_dat = split(/\t/, $posTable{$chr_str}->{$pos});
+					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -439,10 +436,10 @@ sub processCur(){
 				}
 			}else{
 				#this is a CG/CHG/CHH position
-				if($posTable{$chr_str}->{$pos}){
+				if($posTable{$chr_str.":".$pos}){
 					$fields[0] =~ s/:W//;
 					$fields[0] =~ s/:C//;
-					my @pileup_dat = split(/\t/, $posTable{$chr_str}->{$pos});
+					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -454,6 +451,7 @@ sub processCur(){
 			}
 		}
 		close(C_POS);
+		close($cpg_h);
 	}
 	undef %posTable;
 	undef @array;
