@@ -214,13 +214,13 @@ sub sort_rmdup(){
 	$sorted_bam =~ s/sam/bam/;
 	my $template = $template_fwd_fa;
 	$template = $template_rev_fa if($sam_file =~ m/Crick/);
-	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam";
+	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam 2&>1";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	$sorted_bam = $sorted_bam . ".bam";
         if($rmdup){
                 my $sorted_rmdup_bam = "rmdup." . $sorted_bam;
-                $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam";
+                $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam 2&>1";
                 print $cmd, "\n";
                 system($cmd) == 0 or die "system problem (exit $?): $!\n";
 		unlink($sorted_bam);
@@ -322,7 +322,7 @@ sub extract(){
 	}
 
         my $snpcall_file = $name . ".snp";
-        open( my $snp_h, ">$snpcall_file") || die("Error writing to snp file, $snpcall_file \n");
+        open( my $snp_h, ">>$snpcall_file") || die("Error writing to snp file, $snpcall_file \n");
 
 	open(FWD_FILE, "$pileup") || die("Error opening $pileup\n");
 	my @cur_pos;
