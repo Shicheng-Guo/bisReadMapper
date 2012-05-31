@@ -173,6 +173,7 @@ sub main(){
 		}else{
 			for(my $i = 0; $i < scalar(@reads); $i++){
 				($soap_fwd_map_file, $soap_rev_map_file) = fastq2SOAPse($reads[$i]);
+				die("\n");
 				soap2sam($soap_fwd_map_file, $soap_rev_map_file);
 			}
 		}
@@ -216,13 +217,13 @@ sub sort_rmdup(){
 	$sorted_bam =~ s/sam/bam/;
 	my $template = $template_fwd_fa;
 	$template = $template_rev_fa if($sam_file =~ m/Crick/);
-	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam 2&>1";
+	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam 2>1";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	$sorted_bam = $sorted_bam . ".bam";
         if($rmdup){
                 my $sorted_rmdup_bam = "rmdup." . $sorted_bam;
-                $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam 2&>1";
+                $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam 2>1";
                 print $cmd, "\n";
                 system($cmd) == 0 or die "system problem (exit $?): $!\n";
 		unlink($sorted_bam);
@@ -466,7 +467,7 @@ sub fastq2SOAPse(){
 	my $cmd = "$soap2_exe -r 0 -v $maxMismatches -p $cpu -D $template_rev -a $encodedFqName -o $soap_rev_map_file 2>&1";
 	system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	print "$cmd\n";
-	unlink($encodedFqName);
+	#unlink($encodedFqName);
 
 	return ($soap_fwd_map_file, $soap_rev_map_file);
 }
@@ -484,7 +485,7 @@ sub fastq2SOAPpe(){
 	encodeFastq($tmp2, $encodedFqName2);
 
 	my $maxMismatches=1;
-	$maxMismatches = int($read_len/40) if(int($read_len/40) > 0 && $read_len/40 <4);
+	$maxMismatches = int($read_len/30) if(int($read_len/30) > 0 && $read_len/30 <4);
 	
 	my $soap_fwd_map_PE_file = $fqName1.".fwd.soap.PE.out";
 	my $soap_fwd_map_SE_file = $fqName1.".fwd.soap.SE.out";
@@ -555,14 +556,14 @@ sub encodeFastq(){
 		if($threep || $fivep){
 			my $start = $fivep;
 			my $total = length($line2) - $threep - $fivep;
-			my $tmp = substr($line2, $start, $total);
-			$line2=$tmp;
-			$tmp = substr($line4, $start, $total);
-			$line4=$tmp;
+			$line2 = substr($line2, $start, $total);
+			#$line2 = substr($line2, 0, 36);
+			$line4 = substr($line4, $start, $total);
+			#$line4 = substr($line4, 0, 36);
 		}elsif($qualtrim){
 		#http://wiki.bioinformatics.ucdavis.edu/index.php/TrimBWAstyle.pl
 			my @quals = split "", $line4;
-			my $pos = length($line4);
+			my $pos = scalar(@quals);
 			my $maxPos = $pos;
 			my $sum_bad_qual = 0;
 			my $maxSum = 0;
@@ -574,12 +575,13 @@ sub encodeFastq(){
 				}
 				$pos--;
 			}
-			if($pos==0) { $line2 = "N\n"; $line4 = "#\n"; }
+			if($pos==0 || $maxPos < 30) { $line2 = "N\n"; $line4 = "B\n"; }
 			else{
 				$line2 = substr($line2,0,$maxPos);
 				$line4 = substr($line4,0,$maxPos);
 			}
 		}
+		#$line1 = $line1 . "|" . $line2;
 		if(guess_strand($line2) eq "R"){			
 			my $seq = revComp($line2);
 			my $qual ="";
@@ -587,11 +589,11 @@ sub encodeFastq(){
 				$qual = $qual . $qualBase;
 			}
 			$line2=$seq;
-			$line4=$qual;			
+			$line4=$qual;	
 		}
 		$line1 = $line1 . "|" . $line2;
-		#$line3 = $line3 . "|" . $line2;
 		$line2 =~ s/C/T/g;
+	
 		print FQ_OUT "$line1\n$line2\n$line3\n$line4\n";
 	}
 	close(FQ);
@@ -614,10 +616,10 @@ sub guess_strand(){
 	$baseCounts{'T'}=0.001;
 	$baseCounts{'G'}=0.001;
 	$baseCounts{'C'}=0.001;
-	while(my $base = chomp($seq)){
+	while(my $base = chop($seq)){
 		$baseCounts{$base}++;
 	}
-	if($baseCounts{'T'}/$baseCounts{'C'} >$baseCounts{'A'}/$baseCounts{'G'}) {
+	if($baseCounts{'T'}/$baseCounts{'C'} > $baseCounts{'A'}/$baseCounts{'G'}) {
 		return "F";
 	}else{
 		return "R";
