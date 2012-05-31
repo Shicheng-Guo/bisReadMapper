@@ -20,6 +20,7 @@ my $allC = 0;
 my $threep = 0;
 my $fivep= 0;
 my $bam=0;
+my $qualtrim=0;
 
 my $script_dir = `readlink -f $0`;
 chomp($script_dir);
@@ -74,6 +75,7 @@ sub main(){
 			case "trim3" { $threep = int($val); print "Bases to trim from 3': $threep\n"; }
 			case "trim5" { $fivep = int($val); print "Bases to trim from 5': $fivep\n"; }
 			case "bam" { $bam = isyes($val); print "Input is bam? : $bam\n"; }
+			case "qualTrim" { $qualtrim = int($val); print "Perform quality trimming using cutoff : $qualtrim\n"; }
 			#if bam, two reads file must be provided, reads from Watson first, then Crick strand.
 			#assumes bam file have already been filtered and sorted.
 			case "minDepth" { $minDepth = int($val); print "Minimum depth for BED: $minDepth\n"; }
@@ -557,6 +559,26 @@ sub encodeFastq(){
 			$line2=$tmp;
 			$tmp = substr($line4, $start, $total);
 			$line4=$tmp;
+		}elsif($qualtrim){
+		#http://wiki.bioinformatics.ucdavis.edu/index.php/TrimBWAstyle.pl
+			my @quals = split "", $line4;
+			my $pos = length($line4);
+			my $maxPos = $pos;
+			my $sum_bad_qual = 0;
+			my $maxSum = 0;
+			while( $pos > 0 && $sum_bad_qual >= 0){
+				$sum_bad_qual += $qualtrim - (ord($quals[$pos-1])-$qual_base);
+				if($sum_bad_qual > $maxSum){
+					$maxSum = $sum_bad_qual;
+					$maxPos = $pos;
+				}
+				$pos--;
+			}
+			if($pos==0) { $line2 = "N\n"; $line4 = "#\n"; }
+			else{
+				$line2 = substr($line2,0,$maxPos);
+				$line4 = substr($line4,0,$maxPos);
+			}
 		}
 		if(guess_strand($line2) eq "R"){			
 			my $seq = revComp($line2);
