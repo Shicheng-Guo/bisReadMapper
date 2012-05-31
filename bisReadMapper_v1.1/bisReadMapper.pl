@@ -31,7 +31,7 @@ my $rmdup = 0;
 my $num_lines = $ARGV[1];
 $num_lines = 10**7 if(!$num_lines);
 
-my ($template_fwd, $template_fwd_fa, $template_rev, $template_rev_fa, $template_idx, $template_fai);
+my ($template_fwd, $template_fwd_fa, $template_rev, $template_rev_fa);
 
 my ($soap2_exe, $samtools, $soap2sam);
 
@@ -128,11 +128,8 @@ sub main(){
 
 	$template_fwd = $template_fwd_fa.".index";
 	$template_rev = $template_rev_fa.".index";
-	$template_idx = $template_fwd_fa.".fai";
-	$template_fai = "tmp.fai";
 	
 	open(GENOME_INDEX, "$template_idx") || die("Error opening chromosome sizes file for reading!\n");
-	open(GENOME_FAI, ">tmp.fai") || die("Error writing fai file!\n");
 	while(my $line = <GENOME_INDEX>){
 		chomp($line);
 		my @f = split "\t", $line;
@@ -140,10 +137,14 @@ sub main(){
 		$cur_chr =~ s/_Watson//;
 		$cur_chr =~ s/_Crick//;
 		$f[0] = $cur_chr;
-		$samList{$cur_chr.".fwd.sam"} = 'W';
-		$samList{$cur_chr.".rev.sam"} = 'C';
-		open(TMP_OUT, ">$cur_chr.fwd.sam") || die("Error writing to $cur_chr.fwd.sam");
-		open(TMP_OUT, ">$cur_chr.rev.sam") || die("Error writing to $cur_chr.rev.sam");
+		$samList{$cur_chr."_Watson.sam"} = 'W';
+		$samList{$cur_chr."_Crick.sam"} = 'C';
+		my $file = $cur_chr . "_Watson.sam";
+		open(TMP_OUT, ">$file") || die("Error writing to $file\n");
+		close(TMP_OUT);
+		$file = $cur_chr . "_Crick.sam";
+		open(TMP_OUT, ">$file") || die("Error writing to $file\n");
+		close(TMP_OUT);
 		$chrSizes{$cur_chr} = $f[1];
 		# find the chr position files:
 		for my $val (@refList){
@@ -151,14 +152,12 @@ sub main(){
 			if($val =~ m/$cur_chr.cpositions.txt/){
 				push(@{$chrFiles{$cur_chr}},$val);
 				print $cur_chr, "\t", $val, "\n";
-				open(CPG_OUT, ">$val") || die("Error writing to $val.\n");
+				open(CPG_OUT, ">$name.$val") || die("Error writing to $name.$val.\n");
 				close(CPG_OUT);
 			}
 		}
-		print GENOME_FAI join("\t", @f), "\n";
 	}
 	close(GENOME_INDEX);
-	close(GENOME_FAI);
 
 	if($bam == 0){
 		my ($soap_fwd_map_file, $soap_rev_map_file) = (0,0);
@@ -212,7 +211,7 @@ sub sort_rmdup(){
         my $sam_file = shift;
 	my $sorted_bam = $sam_file . ".sorted";
 	$sorted_bam =~ s/sam/bam/;
-	my $cmd = "$samtools view -uSt $template_fai $sam_file | $samtools sort - $sorted_bam";
+	my $cmd = "$samtools view -ubS $sam_file | $samtools sort - $sorted_bam";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	$sorted_bam = $sorted_bam . ".bam";
@@ -278,12 +277,7 @@ sub soap2sam(){
 			my ($id,$orig_seq) = split(/\|/, $last_fields[0]);
 			$last_fields[0] = $id;
 			$last_fields[1] = $orig_seq;
-			if($last_fields[7] =~ s/_Crick//){
-				print { $file_handles{ $last_fields[7] .".rev.sam"} } join("\t", @last_fields), "\n";
-			}else{
-				$last_fields[7] =~ s/_Watson//;
-				print { $file_handles{ $last_fields[7] .".fwd.sam"} } join("\t", @last_fields), "\n";
-			}
+			print { $file_handles{ $last_fields[7] . ".sam"} } join("\t", @last_fields), "\n";
 			$last_line = $line;
 			@last_fields = @fields;
 		}
@@ -293,16 +287,10 @@ sub soap2sam(){
 		my ($id, $orig_seq) = split (/\|/, $last_fields[0]);
 		$last_fields[0] = $id;
 		$last_fields[1] = $orig_seq;
-		if($last_fields[7] =~ s/_Crick//){
-			print { $file_handles{$last_fields[7] .".rev.sam"} } join("\t", @last_fields), "\n";
-		}else{
-			$last_fields[7] =~ s/_Watson//;
-			print { $file_handles{$last_fields[7] .".fwd.sam"} } join("\t", @last_fields), "\n";
-		}
+		print { $file_handles{$last_fields[7] . ".sam"} } join("\t", @last_fields), "\n";
 	}
 	close(SOAP_OUT);
 	
-	print $template_fai, "\n";
 	foreach my $val (keys %samList){
 		close( $file_handles{$val} );
 		my $cmd = "$soap2sam $val.tmp >> $val";
@@ -373,12 +361,14 @@ sub processCur(){
 		my $line = $array[$i];
 		my @fields = split(/\t/, $line);
 		my $chr = $fields[0];
+		$chr =~ s/_Watson//;
+		$chr =~ s/_Crick//;
 		my $fwd_pos = $fields[1];
-		$fwd_pos = $chrSizes{$fields[0]}-$fields[1]+1 if($str eq 'C');
+		$fwd_pos = $chrSizes{$chr}-$fields[1]+1 if($str eq 'C');
 		
 		if($fields[4] ne '.' && $fields[5] > 20){  # if the SNP quality is higher than 20
 			my %variantStat = pileupFields2variantStat(\@fields, 0);
-			print $snp_h $fields[0], "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t", 
+			print $snp_h $chr, "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t", 
 				$variantStat{"call"}, "\t", $variantStat{"snpQual"}, "\t", $variantStat{"depth"};
 			foreach my $base (keys(%{$variantStat{"counts"}})){
 				print $snp_h "\t$base\t", $variantStat{"counts"}->{$base};
