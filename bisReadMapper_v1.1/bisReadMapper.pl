@@ -3,7 +3,8 @@ use strict;
 use Switch;
 # bisReadMapper.pl: a perl script to map single-end bisulfite sequencing reads and report the methylation levels and SNPs. 
 # USAGE: ./bisReadMapper.pl params.txt > SAMPLE_NAME.log
-# This version performs trimming and the old samtools pileup command.
+# This version performs trimming and uses the samtools mpileup command.
+# VarScan to call variants
 
 my $ref_dir = 0;
 my @reads = ();
@@ -160,6 +161,8 @@ sub main(){
 	}
 	close(GENOME_INDEX);
 
+	open( my $snp_h, ">$name.snp.pileup" ) || die("Error writing to $name.snp.pileup");
+
 	if($bam == 0){
 		my ($soap_fwd_map_file, $soap_rev_map_file) = (0,0);
 		if($align_mode eq "P"){
@@ -178,22 +181,13 @@ sub main(){
 		foreach my $sam_file (keys %samList){
 			my $processed_bam = sort_rmdup($sam_file);
 			unlink($sam_file);
-			extract($processed_bam, $samList{$sam_file});
+			extract($processed_bam, $samList{$sam_file}, $snp_h);
 		}
 	}else{
-		extract($reads[0], 'W');
-		extract($reads[1], 'C');
+		extract($reads[0], 'W', $snp_h);
+		extract($reads[1], 'C', $snp_h);
 	}
-
-	#filter SNPs given dbSNP file:
-	if($snp_file){
-		#filter SNPs
-		print "Filtering SNPs\n";
-		$cmd = "$script_dir/bisSnpFilter.pl $name.snp $snp_file > $name.snp.filtered";
-		print $cmd, "\n";
-		system($cmd) == 0 or die "system problem (exit $?): $!\n";
-
-	}
+	close($snp_h);
 	
 	#methylFreq2BED	
 	print "Creating BED files for CG, CHG, CHH positions separately\n";
@@ -305,24 +299,21 @@ sub soap2sam(){
 }
 
 sub extract(){
-        my ($sorted_bam, $str) = @_;
+        my ($sorted_bam, $snp_h, $str) = @_;
 
         my $cmd = "$samtools index $sorted_bam";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
         my $pileup = $sorted_bam . ".pileup";
 	
 	if($str eq 'W'){
-	        $cmd = "$samtools pileup -cf $template_fwd_fa $sorted_bam > $pileup";
+	        $cmd = "$samtools mpileup -6Af $template_fwd_fa $sorted_bam > $pileup";
         	print $cmd, "\n";
 	        system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	}else{
-	        $cmd = "$samtools pileup -cf $template_rev_fa $sorted_bam > $pileup";
+	        $cmd = "$samtools mpileup -6Af $template_rev_fa $sorted_bam > $pileup";
         	print $cmd, "\n";
 	        system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	}
-
-        my $snpcall_file = $name . ".snp";
-        open( my $snp_h, ">$snpcall_file") || die("Error writing to snp file, $snpcall_file \n");
 
 	open(FWD_FILE, "$pileup") || die("Error opening $pileup\n");
 	my @cur_pos;
@@ -368,17 +359,7 @@ sub processCur(){
 		$chr =~ s/_Crick//;
 		my $fwd_pos = $fields[1];
 		$fwd_pos = $chrSizes{$chr}-$fields[1]+1 if($str eq 'C');
-		
-		if($fields[4] ne '.' && $fields[5] > 20){  # if the SNP quality is higher than 20
-			my %variantStat = pileupFields2variantStat(\@fields, 0);
-			print $snp_h $chr, "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t", 
-				$variantStat{"call"}, "\t", $variantStat{"snpQual"}, "\t", $variantStat{"depth"};
-			foreach my $base (keys(%{$variantStat{"counts"}})){
-				print $snp_h "\t$base\t", $variantStat{"counts"}->{$base};
-			}
-			print $snp_h "\n";			
-		}
-		
+			
 		#saves chromosomes to chr_list
 		die("$chr\n$line\n") if(!$chrFiles{$chr});
 		foreach my $file (@{$chrFiles{$chr}}){
@@ -413,6 +394,7 @@ sub processCur(){
 					$fields[0] =~ s/:W//;
 					$fields[0] =~ s/:C//;
 					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
+					$posTable{$chr_str.":".$pos} = -1; # clear out the saved positions
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -427,6 +409,7 @@ sub processCur(){
 					$fields[0] =~ s/:W//;
 					$fields[0] =~ s/:C//;
 					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
+					$posTable{$chr_str.":".$pos} = -1; # clear out the saved positions
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -440,6 +423,9 @@ sub processCur(){
 		close(C_POS);
 		close($cpg_h);
 	}
+	foreach my $val (keys %posTable){
+		print $snp_h $posTable{$val}, "\n" if($posTable{$val} != -1);
+	}	
 	undef %posTable;
 	undef @array;
 	undef %chr_list;
@@ -511,8 +497,8 @@ sub pileupFields2variantStat(){
 	my ($h_fields, $mask_methyl) = @_;
 	my @fields = @{$h_fields};
 	my $refBase = $fields[2];
-	my $readBase = $fields[8];
-	my $readQual = $fields[9];
+	my $readBase = $fields[4];
+	my $readQual = $fields[5];
 	$readBase =~ s/\$//g;
 	$readBase =~ s/\^//g;
 	$readBase =~ s/F//g;
@@ -531,8 +517,6 @@ sub pileupFields2variantStat(){
 	}
 	$variantStat{'refBase'}=$refBase;
 	$variantStat{'depth'}= $totalCounts;
-	$variantStat{'snpQual'}= $fields[5];
-	$variantStat{'call'}= $fields[3];
 	return %variantStat;
 }
 
