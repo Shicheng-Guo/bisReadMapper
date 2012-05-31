@@ -173,7 +173,6 @@ sub main(){
 		}else{
 			for(my $i = 0; $i < scalar(@reads); $i++){
 				($soap_fwd_map_file, $soap_rev_map_file) = fastq2SOAPse($reads[$i]);
-				die("\n");
 				soap2sam($soap_fwd_map_file, $soap_rev_map_file);
 			}
 		}
@@ -467,7 +466,7 @@ sub fastq2SOAPse(){
 	my $cmd = "$soap2_exe -r 0 -v $maxMismatches -p $cpu -D $template_rev -a $encodedFqName -o $soap_rev_map_file 2>&1";
 	system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	print "$cmd\n";
-	#unlink($encodedFqName);
+	unlink($encodedFqName);
 
 	return ($soap_fwd_map_file, $soap_rev_map_file);
 }
