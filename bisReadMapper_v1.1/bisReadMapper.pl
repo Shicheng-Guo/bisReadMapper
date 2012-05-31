@@ -31,7 +31,7 @@ my $rmdup = 0;
 my $num_lines = $ARGV[1];
 $num_lines = 10**7 if(!$num_lines);
 
-my ($template_fwd, $template_fwd_fa, $template_rev, $template_rev_fa);
+my ($template_fwd, $template_fwd_fa, $template_rev, $template_rev_fa, $template_idx);
 
 my ($soap2_exe, $samtools, $soap2sam);
 
@@ -128,6 +128,7 @@ sub main(){
 
 	$template_fwd = $template_fwd_fa.".index";
 	$template_rev = $template_rev_fa.".index";
+	$template_idx = $template_fwd_fa. ".fai";
 	
 	open(GENOME_INDEX, "$template_idx") || die("Error opening chromosome sizes file for reading!\n");
 	while(my $line = <GENOME_INDEX>){
@@ -152,7 +153,7 @@ sub main(){
 			if($val =~ m/$cur_chr.cpositions.txt/){
 				push(@{$chrFiles{$cur_chr}},$val);
 				print $cur_chr, "\t", $val, "\n";
-				open(CPG_OUT, ">$name.$val") || die("Error writing to $name.$val.\n");
+				open(CPG_OUT, ">$name.$val.methylFreq") || die("Error writing to $name.$val.methylFreq.\n");
 				close(CPG_OUT);
 			}
 		}
@@ -211,7 +212,9 @@ sub sort_rmdup(){
         my $sam_file = shift;
 	my $sorted_bam = $sam_file . ".sorted";
 	$sorted_bam =~ s/sam/bam/;
-	my $cmd = "$samtools view -ubS $sam_file | $samtools sort - $sorted_bam";
+	my $template = $template_fwd_fa;
+	$template = $template_rev_fa if($sam_file =~ m/Crick/);
+	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	$sorted_bam = $sorted_bam . ".bam";
