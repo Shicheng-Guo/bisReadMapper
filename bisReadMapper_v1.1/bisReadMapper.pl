@@ -348,7 +348,7 @@ sub extract(){
         close($snp_h);
 
         unlink($sorted_bam . ".bai");
-        #unlink($pileup);
+        unlink($pileup);
 
         return;
 }
