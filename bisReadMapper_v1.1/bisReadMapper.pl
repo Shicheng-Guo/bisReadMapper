@@ -3,7 +3,7 @@ use strict;
 use Switch;
 # bisReadMapper.pl: a perl script to map single-end bisulfite sequencing reads and report the methylation levels and SNPs. 
 # USAGE: ./bisReadMapper.pl params.txt > SAMPLE_NAME.log
-# This version performs trimming and the old samtools pileup command.
+# This version performs soft trimming and the old samtools pileup command.
 
 my $ref_dir = 0;
 my @reads = ();
@@ -224,13 +224,13 @@ sub sort_rmdup(){
 	$sorted_bam =~ s/sam/bam/;
 	my $template = $template_fwd_fa;
 	$template = $template_rev_fa if($sam_file =~ m/Crick/);
-	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam 2>1";
+	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	$sorted_bam = $sorted_bam . ".bam";
         if($rmdup){
                 my $sorted_rmdup_bam = "rmdup." . $sorted_bam;
-                $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam 2>1";
+                $cmd = "$samtools rmdup -S $sorted_bam $sorted_rmdup_bam";
                 print $cmd, "\n";
                 system($cmd) == 0 or die "system problem (exit $?): $!\n";
 		unlink($sorted_bam);
