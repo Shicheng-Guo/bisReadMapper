@@ -295,7 +295,7 @@ sub soap2sam(){
 			$last_fields[0] = $id;
 			$last_fields[1] = $orig_seq;
 			print { $file_handles{ $last_fields[7] . ".sam"} } join("\t", @last_fields), "\n";
-			$mappedReads{ $last_fields[7] . ".sam"} }->{"mapped"}++;
+			$mappedReads{$last_fields[7] . ".sam"}->{"mapped"}++;
 			$last_line = $line;
 			@last_fields = @fields;
 		}
@@ -306,7 +306,7 @@ sub soap2sam(){
 		$last_fields[0] = $id;
 		$last_fields[1] = $orig_seq;
 		print { $file_handles{$last_fields[7] . ".sam"} } join("\t", @last_fields), "\n";
-		$mappedReads{ $last_fields[7]. ".sam" }->{"mapped"}++;
+		$mappedReads{$last_fields[7]. ".sam"}->{"mapped"}++;
 	}
 	close(SOAP_OUT);
 	
