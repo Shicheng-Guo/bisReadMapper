@@ -195,6 +195,11 @@ sub main(){
 		extract($reads[1], 'C');
 	}
 
+	undef %chrSizes;
+	undef %chrFiles;
+	undef %samList;
+	undef %mappedReads;
+
 	#filter SNPs given dbSNP file:
 	if($snp_file){
 		#filter SNPs
@@ -384,17 +389,7 @@ sub processCur(){
 		$chr =~ s/_Crick//;
 		my $fwd_pos = $fields[1];
 		$fwd_pos = $chrSizes{$chr}-$fields[1]+1 if($str eq 'C');
-		
-		if($fields[4] ne '.' && $fields[5] > 20){  # if the SNP quality is higher than 20
-			my %variantStat = pileupFields2variantStat(\@fields, 0);
-			print $snp_h $chr, "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t", 
-				$variantStat{"call"}, "\t", $variantStat{"snpQual"}, "\t", $variantStat{"depth"};
-			foreach my $base (keys(%{$variantStat{"counts"}})){
-				print $snp_h "\t$base\t", $variantStat{"counts"}->{$base};
-			}
-			print $snp_h "\n";			
-		}
-		
+			
 		#saves chromosomes to chr_list
 		die("$chr\n$line\n") if(!$chrFiles{$chr});
 		foreach my $file (@{$chrFiles{$chr}}){
@@ -406,7 +401,7 @@ sub processCur(){
 		$max_pos = $fwd_pos if($fwd_pos > $max_pos);
 	}
 
-	print "~Searching in ", join(",", keys %chr_list), "\n";
+	print "~ Searching in ", join(",", keys %chr_list), "\n";
 	foreach my $chr_file (keys %chr_list){
 		my $methylFreq_file = $name . "." . $chr_file . ".methylFreq";
 		open( my $cpg_h, ">>$methylFreq_file" ) || die("Error writing to $methylFreq_file");
@@ -429,6 +424,8 @@ sub processCur(){
 					$fields[0] =~ s/:W//;
 					$fields[0] =~ s/:C//;
 					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
+					next if($pileup_dat[0]j eq "NA");
+					$posTable{$chr_str.":".$pos} = "NA";
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -443,6 +440,8 @@ sub processCur(){
 					$fields[0] =~ s/:W//;
 					$fields[0] =~ s/:C//;
 					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
+					next if($pileup_dat[0] eq "NA");
+					$posTable{$chr_str. ":". $pos} = "NA";
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -455,6 +454,26 @@ sub processCur(){
 		}
 		close(C_POS);
 		close($cpg_h);
+	}
+
+	foreach my $val(keys %posTable){
+		next if($posTable{$val} eq "NA");
+		my @fields = split "\t", $posTable{$val};
+		my $chr = $fields[0];
+		$chr =~ s/_Watson//;
+		$chr =~ s/_Crick//;
+                my $fwd_pos = $fields[1];
+                $fwd_pos = $chrSizes{$chr}-$fields[1]+1 if($str eq 'C');
+		if($fields[4] ne '.' && $fields[5] > 20){  # if the SNP quality is higher than 20
+                        my %variantStat = pileupFields2variantStat(\@fields, 0);
+                        print $snp_h $chr, "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t",
+                                $variantStat{"call"}, "\t", $variantStat{"snpQual"}, "\t", $variantStat{"depth"};
+                        foreach my $base (keys(%{$variantStat{"counts"}})){
+                                print $snp_h "\t$base\t", $variantStat{"counts"}->{$base};
+                        }
+                        print $snp_h "\n";
+                }
+
 	}
 	undef %posTable;
 	undef @array;
