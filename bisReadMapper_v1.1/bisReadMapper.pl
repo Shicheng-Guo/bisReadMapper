@@ -231,11 +231,56 @@ sub main(){
 
 sub sort_rmdup(){
         my $sam_file = shift;
-	my $sorted_bam = $sam_file . ".sorted";
-	$sorted_bam =~ s/sam/bam/;
-	my $template = $template_fwd_fa;
-	$template = $template_rev_fa if($sam_file =~ m/Crick/);
-	my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam";
+        my $sorted_bam = $sam_file . ".sorted";
+        $sorted_bam =~ s/sam/bam/;
+        my $template = $template_fwd_fa;
+        $template = $template_rev_fa if($sam_file =~ m/Crick/);
+
+	#begin modified codes
+	if(!$rmdup){
+	        my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam";
+        	print $cmd, "\n";
+	        system($cmd) == 0 or die "system problem (exit $?): $!\n";
+	        $sorted_bam = $sorted_bam . ".bam";
+		return $sorted_bam;
+	}
+
+	#begin my own rmdup code:
+	my $sorted_sam = $sam_file . ".sorted";
+	my $cmd = "sort -k4,4n $sam_file > $sorted_sam";
+	print $cmd, "\n";
+	system($cmd) == 0 or die "system problem (exit $?): $!\n";
+	my $rmdup_sam = "rmdup." . $sam_file;
+	open(SORTED, "$sorted_sam") || die("Error reading $sorted_sam\n");
+	open(RMDUP, ">$rmdup_sam") || die("Error writing to $rmdup_sam\n");
+	my $last_line = <SORTED>;
+	my @f = split "\t", $last_line;
+	my $last_pos = $f[3];
+	while(my $line = <SORTED>){
+		@f = split "\t", $line;
+		if($f[3] == $last_pos){
+			$last_line = $line;
+			$last_pos = $f[3];
+		}else{
+			#previous line is different from current line, print
+			print RMDUP $last_line;
+			$mappedReads{ $sam_file }->{"rmdup"}++;
+			$last_line = $line;
+			$last_pos = $f[3];
+		}
+	}
+	close(SORTED);
+	unlink($sorted_sam);
+	unlink($sam_file);
+        $cmd = "$samtools view -ubST $template $rmdup_sam | $samtools sort - $sorted_bam";
+        print $cmd, "\n";
+        system($cmd) == 0 or die "system problem (exit $?): $!\n";
+        $sorted_bam = $sorted_bam . ".bam";
+	unlink($rmdup_sam);
+	return $sorted_bam;
+	
+	=pod
+        my $cmd = "$samtools view -ubST $template $sam_file | $samtools sort - $sorted_bam";
         print $cmd, "\n";
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	$sorted_bam = $sorted_bam . ".bam";
@@ -251,6 +296,7 @@ sub sort_rmdup(){
 		$mappedReads{ $sam_file }->{"rmdup"} = int($tmp2[0]);
                 return ($sorted_rmdup_bam);
         }else{ return ($sorted_bam); }
+	=cut
 }
 
 sub soap2sam(){
