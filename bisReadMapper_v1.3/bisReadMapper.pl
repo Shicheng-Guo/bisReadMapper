@@ -3,7 +3,9 @@ use strict;
 use Switch;
 # bisReadMapper.pl: a perl script to map single-end bisulfite sequencing reads and report the methylation levels and SNPs. 
 # USAGE: ./bisReadMapper.pl params.txt > SAMPLE_NAME.log
-# This version performs soft trimming and the old samtools pileup command.
+# This version performs soft trimming 
+# - new samtools mpileup command + VarScan for variant calling
+# - map using Bowtie with -S
 
 my $ref_dir = 0;
 my @reads = ();
@@ -13,7 +15,7 @@ my $align_mode = 0;
 my $qual_base = 0;
 my $cpu = 1;
 my $read_len = 0;
-my $soap_dir = 0;
+my $bowtie_dir = 0;
 my $samtools_dir = 0;
 my $name = "Sample";
 my $allC = 0;
@@ -34,7 +36,7 @@ $num_lines = 10**7 if(!$num_lines);
 
 my ($template_fwd, $template_fwd_fa, $template_rev, $template_rev_fa, $template_idx);
 
-my ($soap2_exe, $samtools, $soap2sam);
+my ($bowtie2_exe, $samtools, $varscan);
 
 my %rcTable;
 $rcTable{'A'}='T';
@@ -64,12 +66,12 @@ sub main(){
 			case "reads" { @reads = split(",", $val); print "Reads: ", join(",", @reads), "\n"; }
 			case "length" { $read_len = int($val); print "Read length to use: $read_len\n"; }
 			case "refDir" { $ref_dir = $val; print "Reference dir: $ref_dir\n"; }
-			case "soapDir" { $soap_dir = $val; print "SOAP dir: $soap_dir\n"; }
+			case "bowtieDir" { $bowtie_dir = $val; print "bowtie dir: $bowtie_dir\n"; }
 			case "alignMode" { $align_mode = $val; print "Reads alignment mode: $align_mode\n"; }
 			case "qualBase" { $qual_base = int($val); print "Base quality: $qual_base\n"; }
 			case "numCPU" { $cpu = int($val); print "Number of processors for mapping: $cpu\n"; }
 			case "samtoolsDir" { $samtools_dir = $val; print "Samtools dir: $samtools_dir\n"; }
-			case "soap2sam" { $soap2sam = $val; print "Soap2sam path: $soap2sam\n"; }
+			case "varscan" { $varscan = $val; print "Varscan path: $varscan\n"; }
 			case "snp" { $snp_file = $val; print "dbSNP file: $snp_file\n"; }
 			case "name" { $name = $val; print "Sample name: $name\n"; }
 			case "allC" { $allC = isyes($val); print "Call all C? : $allC\n"; }
@@ -99,14 +101,14 @@ sub main(){
 	if(!$ref_dir){
 		die("Missing path to reference.\n");
 	}
-	if(!$soap_dir){
-		die("Missing path to SOAP.\n");
+	if(!$bowtie_dir){
+		die("Missing path to Bowtie.\n");
 	}
 	if(!$samtools_dir){
 		die("Missing path to samtools.\n");
 	}
 
-	$soap2_exe = $soap_dir. "/soap";
+	$bowtie2_exe = $bowtie_dir. "/bowtie2";
 	$samtools = $samtools_dir . "/samtools";
 
 	my $cmd = "ls $ref_dir";
@@ -163,7 +165,7 @@ sub main(){
 	}
 	close(GENOME_INDEX);
 
-        my $snpcall_file = $name . ".snp";
+        my $snpcall_file = $name . ".snp.pileup";
         open( my $snp_h, ">$snpcall_file") || die("Error writing to snp file, $snpcall_file \n");
 
 	if($bam == 0){
@@ -186,11 +188,12 @@ sub main(){
 		foreach my $sam_file (keys %samList){
 			my $processed_bam = sort_rmdup($sam_file);
 			unlink($sam_file);
-			#extract($processed_bam, $samList{$sam_file}, $snp_h);
+			extract($processed_bam, $samList{$sam_file}, $snp_h);
 			$sum_mapped+= $mappedReads{$sam_file}->{"mapped"};
 			$sum_rmdupe+= $mappedReads{$sam_file}->{"rmdup"};
-			#print "Proportion of clonal reads removed: ", 
-			#	sprintf("%4.3f", 1 - ($mappedReads{$sam_file}->{"rmdup"}/$mappedReads{$sam_file}->{"mapped"})), "\n";
+                        print "Proportion of clonal reads removed: ",
+                                sprintf("%4.3f", 1 - ($mappedReads{$sam_file}->{"rmdup"}/$mappedReads{$sam_file}->{"mapped"})), "\n";
+
 		}
 		print "++++++++++++++++++++++++++++++++++\n";
 		print "Total proportion of clonal reads removed: ", sprintf("%4.3f", 1 - ($sum_rmdupe/$sum_mapped)), "\n";
@@ -199,20 +202,29 @@ sub main(){
 		extract($reads[0], 'W', $snp_h);
 		extract($reads[1], 'C', $snp_h);
 	}
-
 	close($snp_h);
-	undef %chrSizes;
-	undef %chrFiles;
-	undef %samList;
-	undef %mappedReads;
+
+        undef %chrSizes;
+        undef %chrFiles;
+        undef %samList;
+        undef %mappedReads;
+
+	print "Calling SNP:\n";
+	my $variant_file = $name . ".varscan.snp";
+	$cmd = "java -jar $varscan pileup2snp $snpcall_file > $variant_file";
+	print "$cmd\n";
+	system($cmd) == 0 or die "system problem (exit $?): $!\n";
 
 	#filter SNPs given dbSNP file:
 	if($snp_file){
-		#filter SNPs
 		print "Filtering SNPs\n";
-		$cmd = "$script_dir/bisSnpFilter.pl $name.snp $snp_file > $name.snp.filtered";
-		print $cmd, "\n";
-		system($cmd) == 0 or die "system problem (exit $?): $!\n";
+
+		#####################################
+		# Needs to modify the SNP filter script
+		#####################################
+		#$cmd = "$script_dir/bisSnpFilter.pl $name.snp $snp_file > $name.snp.filtered";
+		#print $cmd, "\n";
+		#system($cmd) == 0 or die "system problem (exit $?): $!\n";
 
 	}
 	
@@ -338,12 +350,14 @@ sub extract(){
         system($cmd) == 0 or die "system problem (exit $?): $!\n";
         my $pileup = $sorted_bam . ".pileup";
 	
+	my $option = "-6Af";
+	$option = "-Af" if($qual_base == 33);
 	if($str eq 'W'){
-	        $cmd = "$samtools pileup -cf $template_fwd_fa $sorted_bam > $pileup";
+	        $cmd = "$samtools mpileup $option $template_fwd_fa $sorted_bam > $pileup";
         	print $cmd, "\n";
 	        system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	}else{
-	        $cmd = "$samtools pileup -cf $template_rev_fa $sorted_bam > $pileup";
+	        $cmd = "$samtools mpileup $option $template_rev_fa $sorted_bam > $pileup";
         	print $cmd, "\n";
 	        system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	}
@@ -428,7 +442,8 @@ sub processCur(){
 					$fields[0] =~ s/:C//;
 					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
 					next if($pileup_dat[0] eq "NA");
-					$posTable{$chr_str.":".$pos} = "NA";
+					# set the position to null
+					$posTable{$chr_str. ":" . $pos} = "NA";
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -444,7 +459,8 @@ sub processCur(){
 					$fields[0] =~ s/:C//;
 					my @pileup_dat = split(/\t/, $posTable{$chr_str.":".$pos});
 					next if($pileup_dat[0] eq "NA");
-					$posTable{$chr_str. ":". $pos} = "NA";
+					# set the position to null
+					$posTable{$chr_str. ":" . $pos} = "NA";
 					my %variantStat = pileupFields2variantStat(\@pileup_dat, 0);
 					next if($variantStat{"depth"} == 0);
 					print $cpg_h $fields[0], "\t$pos\t$str\t", $variantStat{"depth"}, "\t", $context;
@@ -458,25 +474,8 @@ sub processCur(){
 		close(C_POS);
 		close($cpg_h);
 	}
-
-	foreach my $val(keys %posTable){
-		next if($posTable{$val} eq "NA");
-		my @fields = split "\t", $posTable{$val};
-		my $chr = $fields[0];
-		$chr =~ s/_Watson//;
-		$chr =~ s/_Crick//;
-                my $fwd_pos = $fields[1];
-                $fwd_pos = $chrSizes{$chr}-$fields[1]+1 if($str eq 'C');
-		if($fields[4] ne '.' && $fields[5] > 20){  # if the SNP quality is higher than 20
-                        my %variantStat = pileupFields2variantStat(\@fields, 0);
-                        print $snp_h $chr, "\t$fwd_pos\t", $variantStat{"refBase"}, "\t$str\t",
-                                $variantStat{"call"}, "\t", $variantStat{"snpQual"}, "\t", $variantStat{"depth"};
-                        foreach my $base (keys(%{$variantStat{"counts"}})){
-                                print $snp_h "\t$base\t", $variantStat{"counts"}->{$base};
-                        }
-                        print $snp_h "\n";
-                }
-
+	foreach my $val (keys %posTable){
+		print $snp_h $posTable{$val}, "\n" if($posTable{$val} ne "NA");
 	}
 	undef %posTable;
 	undef @array;
@@ -549,8 +548,8 @@ sub pileupFields2variantStat(){
 	my ($h_fields, $mask_methyl) = @_;
 	my @fields = @{$h_fields};
 	my $refBase = $fields[2];
-	my $readBase = $fields[8];
-	my $readQual = $fields[9];
+	my $readBase = $fields[4];
+	my $readQual = $fields[5];
 	$readBase =~ s/\$//g;
 	$readBase =~ s/\^//g;
 	$readBase =~ s/F//g;
@@ -569,8 +568,6 @@ sub pileupFields2variantStat(){
 	}
 	$variantStat{'refBase'}=$refBase;
 	$variantStat{'depth'}= $totalCounts;
-	$variantStat{'snpQual'}= $fields[5];
-	$variantStat{'call'}= $fields[3];
 	return %variantStat;
 }
 
