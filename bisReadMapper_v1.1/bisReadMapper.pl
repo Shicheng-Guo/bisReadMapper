@@ -188,7 +188,7 @@ sub main(){
 			$sum_rmdupe+= $mappedReads{$sam_file}->{"rmdup"};
 		}
 		print "++++++++++++++++++++++++++++++++++\n";
-		print "Proportion of clonal reads removed: ", sprintf("%4.3f", $sum_mapped/$sum_rmdupe), "\n";
+		print "Proportion of clonal reads removed: ", sprintf("%4.3f", $sum_rmdupe/$sum_mapped), "\n";
 		print "++++++++++++++++++++++++++++++++++\n";
 	}else{
 		extract($reads[0], 'W');
