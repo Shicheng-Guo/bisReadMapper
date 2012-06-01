@@ -52,6 +52,7 @@ $rcTable{'W'}='W';
 my %chrSizes;
 my %chrFiles;
 my %samList;
+my %mappedReads;
 
 sub main(){
 	open(PARAMS, "$ARGV[0]") || die("No params file given or params file is unreadable\n");
@@ -177,11 +178,18 @@ sub main(){
 			}
 		}
 		print "Finished mapping reads.\n";
+		my $sum_mapped = 0;
+		my $sum_rmdupe = 0;
 		foreach my $sam_file (keys %samList){
 			my $processed_bam = sort_rmdup($sam_file);
 			unlink($sam_file);
 			extract($processed_bam, $samList{$sam_file});
+			$sum_mapped+= $mappedReads{$sam_file}->{"mapped"};
+			$sum_rmdupe+= $mappedReads{$sam_file}->{"rmdup"};
 		}
+		print "++++++++++++++++++++++++++++++++++\n";
+		print "Proportion of clonal reads removed: ", sprintf("%4.3f", $sum_mapped/$sum_rmdupe), "\n";
+		print "++++++++++++++++++++++++++++++++++\n";
 	}else{
 		extract($reads[0], 'W');
 		extract($reads[1], 'C');
@@ -203,10 +211,10 @@ sub main(){
 	print $cmd, "\n";
 	system($cmd) == 0 or die "system problem (exit $?): $!\n";
 		
-	print "Calculating bisulfite data quality by correlating the forward and reverse methylation frequencies for CpGs at $minDepth minimum depth \n";
-	$cmd = "less $name.*.methylFreq | $script_dir/frMethylCorr.pl $minDepth";
-	print $cmd, "\n";
-	system($cmd) == 0 or die "system problem (exit $?): $!\n";
+	#print "Calculating bisulfite data quality by correlating the forward and reverse methylation frequencies for CpGs at $minDepth minimum depth \n";
+	#$cmd = "less $name.*.methylFreq | $script_dir/frMethylCorr.pl $minDepth";
+	#print $cmd, "\n";
+	#system($cmd) == 0 or die "system problem (exit $?): $!\n";
 	
 }
 
@@ -226,6 +234,10 @@ sub sort_rmdup(){
                 print $cmd, "\n";
                 system($cmd) == 0 or die "system problem (exit $?): $!\n";
 		unlink($sorted_bam);
+		$cmd = "$samtools flagstat $sorted_rmdup_bam";
+		my @tmp = split /\n/, `$cmd`;
+		my @tmp2 = split " ", $tmp[0];
+		$mappedReads{ $sam_file }->{"rmdup"} = int($tmp2[0]);
                 return ($sorted_rmdup_bam);
         }else{ return ($sorted_bam); }
 }
@@ -283,6 +295,7 @@ sub soap2sam(){
 			$last_fields[0] = $id;
 			$last_fields[1] = $orig_seq;
 			print { $file_handles{ $last_fields[7] . ".sam"} } join("\t", @last_fields), "\n";
+			$mappedReads{ $last_fields[7] . ".sam"} }->{"mapped"}++;
 			$last_line = $line;
 			@last_fields = @fields;
 		}
@@ -293,6 +306,7 @@ sub soap2sam(){
 		$last_fields[0] = $id;
 		$last_fields[1] = $orig_seq;
 		print { $file_handles{$last_fields[7] . ".sam"} } join("\t", @last_fields), "\n";
+		$mappedReads{ $last_fields[7]. ".sam" }->{"mapped"}++;
 	}
 	close(SOAP_OUT);
 	
