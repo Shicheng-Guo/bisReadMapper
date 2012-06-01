@@ -189,9 +189,11 @@ sub main(){
 			#extract($processed_bam, $samList{$sam_file}, $snp_h);
 			$sum_mapped+= $mappedReads{$sam_file}->{"mapped"};
 			$sum_rmdupe+= $mappedReads{$sam_file}->{"rmdup"};
+			print "Proportion of clonal reads removed: ", 
+				sprintf("%4.3f", 1 - ($mappedReads{$sam_file}->{"rmdup"}/$mappedReads{$sam_file}->{"mapped"})), "\n";
 		}
 		print "++++++++++++++++++++++++++++++++++\n";
-		print "Proportion of clonal reads removed: ", sprintf("%4.3f", 1 - ($sum_rmdupe/$sum_mapped)), "\n";
+		print "Total proportion of clonal reads removed: ", sprintf("%4.3f", 1 - ($sum_rmdupe/$sum_mapped)), "\n";
 		print "++++++++++++++++++++++++++++++++++\n";
 	}else{
 		extract($reads[0], 'W', $snp_h);
