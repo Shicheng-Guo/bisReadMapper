@@ -30,7 +30,7 @@ my $keep_bam = 1;
 my $minDepth = 10;
 my $rmdup = 0;
 my $num_lines = $ARGV[1];
-$num_lines = 10**7 if(!$num_lines);
+$num_lines = 10**8 if(!$num_lines);
 
 my ($template_fwd, $template_fwd_fa, $template_rev, $template_rev_fa, $template_idx);
 
@@ -186,12 +186,12 @@ sub main(){
 		foreach my $sam_file (keys %samList){
 			my $processed_bam = sort_rmdup($sam_file);
 			unlink($sam_file);
-			#extract($processed_bam, $samList{$sam_file}, $snp_h);
+			extract($processed_bam, $samList{$sam_file}, $snp_h);
 			$sum_mapped+= $mappedReads{$sam_file}->{"mapped"};
 			$sum_rmdupe+= $mappedReads{$sam_file}->{"rmdup"};
-			#next if($mappedReads{$sam_file}->{"mapped"} == 0);
-			#print "Proportion of clonal reads removed: ", 
-			#	sprintf("%4.3f", 1 - ($mappedReads{$sam_file}->{"rmdup"}/$mappedReads{$sam_file}->{"mapped"})), "\n";
+			next if($mappedReads{$sam_file}->{"mapped"} == 0);
+			print "Proportion of clonal reads removed: ", 
+				sprintf("%4.3f", 1 - ($mappedReads{$sam_file}->{"rmdup"}/$mappedReads{$sam_file}->{"mapped"})), "\n";
 		}
 		print "++++++++++++++++++++++++++++++++++\n";
 		print "Total proportion of clonal reads removed: ", sprintf("%4.3f", 1 - ($sum_rmdupe/$sum_mapped)), "\n";
