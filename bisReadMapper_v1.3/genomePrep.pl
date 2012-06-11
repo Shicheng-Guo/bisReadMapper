@@ -139,7 +139,7 @@ if(open(IN, "$genome_path")){
 				$rev_seq =~ s/C/T/g;
 				print FWD_OUT $fwd_seq, "\n";
 				close(FWD_OUT);
-				push(@rcArray, $rev_seq);
+				unshift(@rcArray, $rev_seq);
 			}
 			open(REV_OUT, ">>$bisRev") || die("Error writing bis rev file");
 			print REV_OUT ">", $name, "_Crick\n";
